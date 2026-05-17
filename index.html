@@ -131,6 +131,7 @@
                 <div class="summary-item"><div class="value" id="sumTotalInterest">--</div><div class="label">Total Interest</div></div>
                 <div class="summary-item"><div class="value" id="sumTotalPayment">--</div><div class="label">Total Payment</div></div>
                 <div class="summary-item"><div class="value" id="sumSaved">--</div><div class="label">Interest Saved</div></div>
+                <div class="summary-item"><div class="value" id="sumPayoffMonths">--</div><div class="label">Payoff In (Months)</div></div>
                 <div class="summary-item"><div class="value" id="sumEndDate">--</div><div class="label">Loan End Date</div></div>
                 <div class="summary-item"><div class="value" id="sumMonthsSaved">--</div><div class="label">Months Saved</div></div>
             </div>
@@ -339,6 +340,7 @@ function calculate() {
     document.getElementById('sumTotalPayment').textContent = formatCurrency(totalPrincipal + totalInterest);
     const interestSaved = origTotalInterest - totalInterest;
     document.getElementById('sumSaved').textContent = formatCurrency(Math.max(0, interestSaved));
+    document.getElementById('sumPayoffMonths').textContent = month;
     const endDate = schedule.length > 0 ? schedule[schedule.length - 1].date : '--';
     document.getElementById('sumEndDate').textContent = endDate;
     const monthsSaved = origMonths - month;

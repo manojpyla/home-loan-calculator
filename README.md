@@ -26,6 +26,7 @@ The summary section displays key metrics at a glance:
 | Total Interest | Total interest payable on remaining balance |
 | Total Payment | Sum of principal + interest over remaining tenure |
 | Interest Saved | Interest saved due to additional payments |
+| Payoff In (Months) | Number of months to fully pay off the loan with current strategy |
 | Loan End Date | Projected loan closure date |
 | Months Saved | Number of months reduced by extra payments |
 
@@ -87,6 +88,9 @@ The app comes pre-loaded with sample loan data:
 - **Responsive Design** — Works on desktop and mobile browsers
 
 ## Version History
+
+### v1.3.0
+- Added **Payoff In (Months)** metric to loan summary showing total months to early payoff with current strategy
 
 ### v1.2.0
 - Added **dark/light theme toggle** with smooth transitions
