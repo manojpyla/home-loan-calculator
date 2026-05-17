@@ -1,6 +1,8 @@
-# Home Loan Repayment Calculator
+# Loan Repayment Calculator
 
-A web-based dashboard to simulate home loan repayment schedules, track additional payments, and visualize principal vs interest breakdowns over time.
+A web-based dashboard to simulate loan repayment schedules, track additional payments, and visualize principal vs interest breakdowns over time.
+
+*An app by Manoj Pyla*
 
 ## Features
 
