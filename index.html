@@ -144,8 +144,10 @@
             <h2>Co-Payers</h2>
             <div class="inline-add">
                 <input type="text" id="copayerName" placeholder="Enter co-payer name">
+                <input type="number" id="copayerShare" placeholder="Share %" value="" min="1" max="100" style="max-width:100px;">
                 <button class="btn btn-primary" onclick="addCopayer()">Add Co-Payer</button>
             </div>
+            <p style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;" id="shareHint"></p>
             <div class="copayer-tags" id="copayerTags"></div>
             <div class="copayer-breakdown" id="copayerBreakdown" style="display:none;">
                 <h2 style="margin-top:16px;">Per-Payer Breakdown</h2>
@@ -259,20 +261,27 @@ function formatCurrency(n) {
 
 const frequencyLabels = { once: 'One-time', monthly: 'Monthly', quarterly: 'Quarterly', 'half-yearly': 'Half-Yearly', yearly: 'Yearly' };
 
+function getTotalShare() { return copayers.reduce((s, c) => s + c.share, 0); }
+
 function addCopayer() {
     const input = document.getElementById('copayerName');
+    const shareInput = document.getElementById('copayerShare');
     const name = input.value.trim();
+    const share = parseFloat(shareInput.value);
     if (!name) { alert('Please enter a co-payer name.'); return; }
-    if (copayers.includes(name)) { alert('Co-payer already exists.'); return; }
-    copayers.push(name);
+    if (copayers.some(c => c.name === name)) { alert('Co-payer already exists.'); return; }
+    if (!share || share <= 0 || share > 100) { alert('Please enter a valid share % (1-100).'); return; }
+    if (getTotalShare() + share > 100) { alert('Total share cannot exceed 100%. Remaining: ' + (100 - getTotalShare()) + '%'); return; }
+    copayers.push({ name, share });
     input.value = '';
+    shareInput.value = '';
     renderCopayers();
     calculate();
 }
 
 function removeCopayer(index) {
     const removed = copayers.splice(index, 1)[0];
-    extraPayments = extraPayments.filter(ep => ep.payer !== removed);
+    extraPayments = extraPayments.filter(ep => ep.payer !== removed.name);
     renderCopayers();
     renderExtraPayments();
     calculate();
@@ -280,13 +289,17 @@ function removeCopayer(index) {
 
 function renderCopayers() {
     const tags = document.getElementById('copayerTags');
-    tags.innerHTML = copayers.map((name, i) =>
-        `<span class="copayer-tag">${name} <span class="remove" onclick="removeCopayer(${i})">&times;</span></span>`
+    tags.innerHTML = copayers.map((c, i) =>
+        `<span class="copayer-tag">${c.name} (${c.share}%) <span class="remove" onclick="removeCopayer(${i})">&times;</span></span>`
     ).join('');
     // Update payer dropdown
     const sel = document.getElementById('extraPaymentPayer');
-    sel.innerHTML = '<option value="all">All Payers (Split Equally)</option>' +
-        copayers.map(n => `<option value="${n}">${n}</option>`).join('');
+    sel.innerHTML = '<option value="all">All Payers (Split by Share)</option>' +
+        copayers.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+    // Update share hint
+    const total = getTotalShare();
+    const hint = document.getElementById('shareHint');
+    hint.textContent = copayers.length > 0 ? `Total allocated: ${total}% | Remaining: ${100 - total}%` : '';
 }
 
 function addExtraPayment() {
@@ -428,7 +441,7 @@ function calculate() {
     const tbody = document.getElementById('scheduleBody');
     let thExtra = '';
     if (copayers.length > 0) {
-        thExtra = copayers.map(n => `<th>${n} Extra</th><th>${n} Balance</th>`).join('');
+        thExtra = copayers.map(c => `<th>${c.name} Extra</th><th>${c.name} Bal</th>`).join('');
     }
     thead.innerHTML = `<tr><th>#</th><th>Date</th><th>EMI</th><th>Principal</th><th>Interest</th><th>Extra Payment</th><th>Balance</th>${thExtra}</tr>`;
 
@@ -443,8 +456,8 @@ function calculate() {
     tbody.innerHTML = schedule.map((r, idx) => {
         let tdExtra = '';
         if (copayers.length > 0) {
-            tdExtra = copayers.map(name => {
-                const ps = payerScheduleMap[name];
+            tdExtra = copayers.map(c => {
+                const ps = payerScheduleMap[c.name];
                 if (ps && idx < ps.length) {
                     return `<td>${ps[idx].extra > 0 ? formatCurrency(ps[idx].extra) : '-'}</td><td>${formatCurrency(ps[idx].balance)}</td>`;
                 }
@@ -479,7 +492,9 @@ function getExtraForMonth(paymentDate, payerFilter) {
         if (epDate > paymentDate) return;
         let amt = ep.amount;
         if (payerFilter && ep.payer === 'all' && copayers.length > 0) {
-            amt = amt / copayers.length;
+            const payer = copayers.find(c => c.name === payerFilter);
+            const totalShare = getTotalShare();
+            amt = payer && totalShare > 0 ? amt * (payer.share / totalShare) : 0;
         }
         if (ep.frequency === 'once') {
             if (ep.date.slice(0, 7) === monthStr) total += amt;
@@ -535,10 +550,7 @@ function renderCopayerBreakdown(outstanding, emi, monthlyRate, schedule, origMon
     compareCard.style.display = '';
     balanceCard.style.display = '';
 
-    const numPayers = copayers.length;
-    const share = outstanding / numPayers;
-    const emiShare = emi / numPayers;
-    const origInterestPerPayer = origTotalInterest / numPayers;
+    const totalSharePct = getTotalShare();
 
     const startDate = document.getElementById('startDate').value;
     const start = new Date(startDate);
@@ -546,14 +558,18 @@ function renderCopayerBreakdown(outstanding, emi, monthlyRate, schedule, origMon
     const monthsPassed = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
     const currentDate = new Date(start.getFullYear(), start.getMonth() + monthsPassed, 23);
 
-    lastPayerResults = copayers.map(name => {
-        const result = simulatePayerSchedule(share, emiShare, monthlyRate, currentDate, name);
-        const saved = origInterestPerPayer - result.totalInterest;
-        return { name, share, emiShare, ...result, saved };
+    lastPayerResults = copayers.map(c => {
+        const fraction = c.share / 100;
+        const payerShare = outstanding * fraction;
+        const payerEmi = emi * fraction;
+        const origInterestPayer = origTotalInterest * fraction;
+        const result = simulatePayerSchedule(payerShare, payerEmi, monthlyRate, currentDate, c.name);
+        const saved = origInterestPayer - result.totalInterest;
+        return { name: c.name, sharePct: c.share, share: payerShare, emiShare: payerEmi, ...result, saved };
     });
 
     body.innerHTML = lastPayerResults.map(r => `<tr>
-        <td>${r.name}</td>
+        <td>${r.name} (${r.sharePct}%)</td>
         <td>${formatCurrency(r.share)}</td>
         <td>${formatCurrency(r.emiShare)}</td>
         <td>${formatCurrency(r.totalExtra)}</td>
