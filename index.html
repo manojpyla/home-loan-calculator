@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home Loan Repayment Calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+        .dashboard { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        h1 { text-align: center; margin-bottom: 24px; color: #1a237e; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .card h2 { margin-bottom: 16px; color: #283593; font-size: 1.1rem; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; margin-bottom: 4px; font-weight: 500; font-size: 0.9rem; }
+        .form-group input, .form-group select { width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; background: #fff; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #3f51b5; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 500; }
+        .btn-primary { background: #3f51b5; color: #fff; }
+        .btn-primary:hover { background: #303f9f; }
+        .btn-success { background: #43a047; color: #fff; }
+        .btn-success:hover { background: #388e3c; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .summary-item { background: #e8eaf6; padding: 14px; border-radius: 8px; text-align: center; }
+        .summary-item .value { font-size: 1.3rem; font-weight: 700; color: #1a237e; }
+        .summary-item .label { font-size: 0.8rem; color: #555; margin-top: 4px; }
+        .table-wrap { max-height: 400px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee; }
+        th { background: #e8eaf6; position: sticky; top: 0; }
+        td:first-child, th:first-child { text-align: center; }
+        .charts { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .chart-container { position: relative; height: 320px; }
+        .extra-payments { margin-top: 16px; }
+        .extra-payments table { font-size: 0.82rem; }
+        .extra-payments .btn { padding: 4px 10px; font-size: 0.8rem; }
+        .full-width { grid-column: 1 / -1; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .charts { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="dashboard">
+    <h1>Home Loan Repayment Calculator</h1>
+
+    <div class="grid">
+        <!-- Input Panel -->
+        <div class="card">
+            <h2>Loan Parameters</h2>
+            <div class="form-group">
+                <label>Initial Loan Amount</label>
+                <input type="number" id="loanAmount" value="4000000" min="0">
+            </div>
+            <div class="form-group">
+                <label>Loan Start Date</label>
+                <input type="date" id="startDate" value="2017-03-15">
+            </div>
+            <div class="form-group">
+                <label>Tenure (Months)</label>
+                <input type="number" id="tenure" value="312" min="1" max="480">
+            </div>
+            <div class="form-group">
+                <label>Current Outstanding Amount</label>
+                <input type="number" id="outstandingAmount" value="3026195" min="0">
+            </div>
+            <div class="form-group">
+                <label>Annual Interest Rate (%)</label>
+                <input type="number" id="interestRate" value="8.25" step="0.01" min="0">
+            </div>
+            <button class="btn btn-primary" onclick="calculate()">Calculate Schedule</button>
+        </div>
+
+        <!-- Additional Payment Panel -->
+        <div class="card">
+            <h2>Record Additional Payment</h2>
+            <div class="form-group">
+                <label>Payment Date</label>
+                <input type="date" id="extraPaymentDate">
+            </div>
+            <div class="form-group">
+                <label>Additional Payment Amount</label>
+                <input type="number" id="extraPaymentAmount" min="0">
+            </div>
+            <div class="form-group">
+                <label>Frequency</label>
+                <select id="extraPaymentFrequency">
+                    <option value="once">One-time</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly (Every 3 months)</option>
+                    <option value="half-yearly">Half-Yearly (Every 6 months)</option>
+                    <option value="yearly">Yearly</option>
+                </select>
+            </div>
+            <button class="btn btn-success" onclick="addExtraPayment()">Add Payment</button>
+
+            <div class="extra-payments" id="extraPaymentsSection" style="display:none;">
+                <h2 style="margin-top:16px;">Recorded Additional Payments</h2>
+                <table>
+                    <thead><tr><th>Date</th><th>Amount</th><th>Frequency</th><th>Action</th></tr></thead>
+                    <tbody id="extraPaymentsBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="card full-width">
+            <h2>Loan Summary</h2>
+            <div class="summary" id="summarySection">
+                <div class="summary-item"><div class="value" id="sumEmi">--</div><div class="label">Monthly EMI</div></div>
+                <div class="summary-item"><div class="value" id="sumTotalInterest">--</div><div class="label">Total Interest</div></div>
+                <div class="summary-item"><div class="value" id="sumTotalPayment">--</div><div class="label">Total Payment</div></div>
+                <div class="summary-item"><div class="value" id="sumSaved">--</div><div class="label">Interest Saved</div></div>
+                <div class="summary-item"><div class="value" id="sumEndDate">--</div><div class="label">Loan End Date</div></div>
+                <div class="summary-item"><div class="value" id="sumMonthsSaved">--</div><div class="label">Months Saved</div></div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts">
+            <div class="card">
+                <h2>Principal vs Interest (Monthly)</h2>
+                <div class="chart-container"><canvas id="barChart"></canvas></div>
+            </div>
+            <div class="card">
+                <h2>Cumulative Principal & Interest</h2>
+                <div class="chart-container"><canvas id="lineChart"></canvas></div>
+            </div>
+            <div class="card">
+                <h2>Overall Breakdown</h2>
+                <div class="chart-container"><canvas id="pieChart"></canvas></div>
+            </div>
+            <div class="card">
+                <h2>Outstanding Balance Over Time</h2>
+                <div class="chart-container"><canvas id="balanceChart"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Amortization Table -->
+        <div class="card full-width">
+            <h2>Repayment Schedule</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Date</th><th>EMI</th><th>Principal</th><th>Interest</th><th>Extra Payment</th><th>Balance</th></tr>
+                    </thead>
+                    <tbody id="scheduleBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let extraPayments = [];
+let barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance;
+
+function formatCurrency(n) {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
+}
+
+const frequencyLabels = { once: 'One-time', monthly: 'Monthly', quarterly: 'Quarterly', 'half-yearly': 'Half-Yearly', yearly: 'Yearly' };
+
+function addExtraPayment() {
+    const date = document.getElementById('extraPaymentDate').value;
+    const amount = parseFloat(document.getElementById('extraPaymentAmount').value);
+    const frequency = document.getElementById('extraPaymentFrequency').value;
+    if (!date || !amount || amount <= 0) { alert('Please enter a valid date and amount.'); return; }
+    extraPayments.push({ date, amount, frequency });
+    extraPayments.sort((a, b) => a.date.localeCompare(b.date));
+    renderExtraPayments();
+    calculate();
+}
+
+function removeExtraPayment(index) {
+    extraPayments.splice(index, 1);
+    renderExtraPayments();
+    calculate();
+}
+
+function renderExtraPayments() {
+    const section = document.getElementById('extraPaymentsSection');
+    const body = document.getElementById('extraPaymentsBody');
+    if (extraPayments.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    body.innerHTML = extraPayments.map((p, i) =>
+        `<tr><td>${p.date}</td><td>${formatCurrency(p.amount)}</td><td>${frequencyLabels[p.frequency]}</td><td><button class="btn btn-primary" onclick="removeExtraPayment(${i})">Remove</button></td></tr>`
+    ).join('');
+}
+
+function calculate() {
+    const loanAmount = parseFloat(document.getElementById('loanAmount').value);
+    const startDate = document.getElementById('startDate').value;
+    const tenure = parseInt(document.getElementById('tenure').value);
+    const outstanding = parseFloat(document.getElementById('outstandingAmount').value);
+    const annualRate = parseFloat(document.getElementById('interestRate').value);
+
+    if (!loanAmount || !startDate || !tenure || !outstanding || !annualRate) return;
+
+    const monthlyRate = annualRate / 12 / 100;
+    const totalMonths = tenure;
+
+    // Calculate EMI based on initial loan amount and full tenure
+    const emi = loanAmount * monthlyRate * Math.pow(1 + monthlyRate, totalMonths) / (Math.pow(1 + monthlyRate, totalMonths) - 1);
+
+    // Determine how many months have passed since start
+    const start = new Date(startDate);
+    const now = new Date();
+    const monthsPassed = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+
+    // Build schedule from current outstanding going forward
+    let balance = outstanding;
+    const schedule = [];
+    let currentDate = new Date(start.getFullYear(), start.getMonth() + monthsPassed, 23);
+
+    // Also calculate original total interest (no extra payments) for comparison
+    let origBalance = outstanding;
+    let origTotalInterest = 0;
+    let origMonths = 0;
+    let tempBal = origBalance;
+    while (tempBal > 0.5) {
+        const interest = tempBal * monthlyRate;
+        const principal = Math.min(emi - interest, tempBal);
+        tempBal -= principal;
+        origTotalInterest += interest;
+        origMonths++;
+        if (origMonths > 600) break;
+    }
+
+    let totalInterest = 0;
+    let totalPrincipal = 0;
+    let month = 0;
+
+    while (balance > 0.5) {
+        month++;
+        const paymentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + month, 23);
+
+        const dateStr = paymentDate.toISOString().slice(0, 10);
+        const monthStr = paymentDate.toISOString().slice(0, 7);
+
+        const interest = balance * monthlyRate;
+        let principal = Math.min(emi - interest, balance);
+        let emiActual = principal + interest;
+
+        // Check for extra payments this month (including recurring)
+        let extraThisMonth = 0;
+        const payMonth = paymentDate.getTime();
+        extraPayments.forEach(ep => {
+            const epDate = new Date(ep.date);
+            if (epDate > paymentDate) return; // hasn't started yet
+            const epMonthStr = ep.date.slice(0, 7);
+            if (ep.frequency === 'once') {
+                if (epMonthStr === monthStr) extraThisMonth += ep.amount;
+            } else {
+                const monthsDiff = (paymentDate.getFullYear() - epDate.getFullYear()) * 12 + (paymentDate.getMonth() - epDate.getMonth());
+                if (monthsDiff < 0) return;
+                const interval = ep.frequency === 'monthly' ? 1 : ep.frequency === 'quarterly' ? 3 : ep.frequency === 'half-yearly' ? 6 : 12;
+                if (monthsDiff % interval === 0) extraThisMonth += ep.amount;
+            }
+        });
+
+        if (extraThisMonth > 0) {
+            extraThisMonth = Math.min(extraThisMonth, balance - principal);
+        }
+
+        balance -= (principal + extraThisMonth);
+        if (balance < 0) { extraThisMonth += balance; balance = 0; }
+
+        totalInterest += interest;
+        totalPrincipal += principal + extraThisMonth;
+
+        schedule.push({
+            month,
+            date: dateStr,
+            emi: emiActual,
+            principal,
+            interest,
+            extra: extraThisMonth,
+            balance
+        });
+
+        if (month > 600) break;
+    }
+
+    // Update summary
+    document.getElementById('sumEmi').textContent = formatCurrency(emi);
+    document.getElementById('sumTotalInterest').textContent = formatCurrency(totalInterest);
+    document.getElementById('sumTotalPayment').textContent = formatCurrency(totalPrincipal + totalInterest);
+    const interestSaved = origTotalInterest - totalInterest;
+    document.getElementById('sumSaved').textContent = formatCurrency(Math.max(0, interestSaved));
+    const endDate = schedule.length > 0 ? schedule[schedule.length - 1].date : '--';
+    document.getElementById('sumEndDate').textContent = endDate;
+    const monthsSaved = origMonths - month;
+    document.getElementById('sumMonthsSaved').textContent = Math.max(0, monthsSaved);
+
+    // Render table
+    const tbody = document.getElementById('scheduleBody');
+    tbody.innerHTML = schedule.map(r => `<tr>
+        <td>${r.month}</td>
+        <td>${r.date}</td>
+        <td>${formatCurrency(r.emi)}</td>
+        <td>${formatCurrency(r.principal)}</td>
+        <td>${formatCurrency(r.interest)}</td>
+        <td>${r.extra > 0 ? formatCurrency(r.extra) : '-'}</td>
+        <td>${formatCurrency(r.balance)}</td>
+    </tr>`).join('');
+
+    // Charts
+    renderCharts(schedule);
+}
+
+function renderCharts(schedule) {
+    // Sample data for readability (show every 6th month for large schedules)
+    const step = schedule.length > 60 ? 6 : schedule.length > 30 ? 3 : 1;
+    const sampled = schedule.filter((_, i) => i % step === 0 || i === schedule.length - 1);
+    const labels = sampled.map(r => r.date.slice(0, 7));
+    const principals = sampled.map(r => Math.round(r.principal));
+    const interests = sampled.map(r => Math.round(r.interest));
+    const balances = sampled.map(r => Math.round(r.balance));
+
+    // Cumulative
+    let cumP = 0, cumI = 0;
+    const cumPrincipals = [], cumInterests = [];
+    for (const r of sampled) {
+        cumP += r.principal + r.extra;
+        cumI += r.interest;
+        cumPrincipals.push(Math.round(cumP));
+        cumInterests.push(Math.round(cumI));
+    }
+
+    const totalP = schedule.reduce((s, r) => s + r.principal + r.extra, 0);
+    const totalI = schedule.reduce((s, r) => s + r.interest, 0);
+
+    // Destroy old charts
+    [barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance].forEach(c => c && c.destroy());
+
+    // Bar chart
+    barChartInstance = new Chart(document.getElementById('barChart'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Principal', data: principals, backgroundColor: '#3f51b5' },
+                { label: 'Interest', data: interests, backgroundColor: '#ef5350' }
+            ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
+    });
+
+    // Line chart
+    lineChartInstance = new Chart(document.getElementById('lineChart'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Cumulative Principal', data: cumPrincipals, borderColor: '#3f51b5', fill: false, tension: 0.2 },
+                { label: 'Cumulative Interest', data: cumInterests, borderColor: '#ef5350', fill: false, tension: 0.2 }
+            ]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    // Pie chart
+    pieChartInstance = new Chart(document.getElementById('pieChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Total Principal', 'Total Interest'],
+            datasets: [{ data: [Math.round(totalP), Math.round(totalI)], backgroundColor: ['#3f51b5', '#ef5350'] }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    // Balance chart
+    balanceChartInstance = new Chart(document.getElementById('balanceChart'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{ label: 'Outstanding Balance', data: balances, borderColor: '#43a047', backgroundColor: 'rgba(67,160,71,0.1)', fill: true, tension: 0.2 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+}
+
+// Initial calculation on load
+window.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('extraPaymentDate').value = new Date().toISOString().slice(0, 10);
+    calculate();
+});
+</script>
+</body>
+</html>

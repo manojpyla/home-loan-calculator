@@ -1,82 +1,91 @@
-# Web Scraper
+# Home Loan Repayment Calculator
 
-A Python command-line tool that scrapes a webpage and exports structured data to an XML file.
+A web-based dashboard to simulate home loan repayment schedules, track additional payments, and visualize principal vs interest breakdowns over time.
 
-## What It Does
+## Features
 
-The scraper fetches a given URL and extracts the following content into a structured XML file:
+- **Loan Parameter Input** — Configure initial loan amount, start date, tenure (in months), current outstanding balance, and annual interest rate
+- **EMI Calculation** — Automatically computes monthly EMI using standard amortization formula
+- **Repayment Schedule** — Generates a detailed month-by-month amortization table with EMI, principal, interest, extra payments, and remaining balance
+- **Additional Payments** — Record one-time or recurring extra payments toward your loan principal
+- **Recurring Payment Frequencies** — Supports Monthly, Quarterly, Half-Yearly, and Yearly recurring additional payments
+- **Impact Analysis** — Shows interest saved and months reduced when additional payments are made
+- **Interactive Charts** — Four visualizations powered by Chart.js:
+  - **Principal vs Interest (Stacked Bar)** — Monthly breakdown of each EMI
+  - **Cumulative Principal & Interest (Line)** — Running totals over time
+  - **Overall Breakdown (Doughnut)** — Total principal vs total interest ratio
+  - **Outstanding Balance (Area)** — Declining balance curve over the loan tenure
 
-- Page title
-- Meta tags (name and content)
-- Headings (h1 through h6)
-- Paragraphs
-- Links (href and text)
-- Images (src and alt)
-- Tables (rows and cells)
+## Loan Summary Dashboard
 
-After scraping, it prints a summary of the extracted data to the console.
+The summary section displays key metrics at a glance:
 
-## Requirements
+| Metric | Description |
+|--------|-------------|
+| Monthly EMI | Fixed monthly installment amount |
+| Total Interest | Total interest payable on remaining balance |
+| Total Payment | Sum of principal + interest over remaining tenure |
+| Interest Saved | Interest saved due to additional payments |
+| Loan End Date | Projected loan closure date |
+| Months Saved | Number of months reduced by extra payments |
 
-### Environment
+## How to Use
 
-- **Python** 3.8 or higher (uses `xml.etree.ElementTree.indent`, introduced in Python 3.9)
-- **OS:** Windows, macOS, or Linux
+### 1. Open the App
 
-### Packages
-
-Install the required third-party packages:
-
-```bash
-pip install requests beautifulsoup4
-```
-
-| Package          | Purpose                          |
-|------------------|----------------------------------|
-| `requests`       | HTTP requests to fetch webpages  |
-| `beautifulsoup4` | HTML parsing and data extraction |
-
-## Usage
-
-### Interactive mode (prompts for URL and output file name):
+Simply open `index.html` in any modern web browser. No server, build tools, or dependencies to install.
 
 ```bash
-python web_scraper.py
+# Or serve locally with Python
+python -m http.server 8080
+# Then open http://localhost:8080
 ```
 
-### With command-line arguments:
+### 2. Enter Loan Details
 
-```bash
-# Uses default output file (scraped_data.xml)
-python web_scraper.py https://example.com
+Fill in your loan parameters:
+- **Initial Loan Amount** — The original sanctioned loan amount
+- **Loan Start Date** — When the loan was disbursed
+- **Tenure (Months)** — Total loan tenure in months
+- **Current Outstanding Amount** — Present outstanding principal balance
+- **Annual Interest Rate (%)** — Current annual interest rate
 
-# Specify a custom output file
-python web_scraper.py https://example.com --output result.xml
-```
+Click **Calculate Schedule** to generate the repayment plan.
 
-### Options
+### 3. Record Additional Payments
 
-| Argument         | Description                                      |
-|------------------|--------------------------------------------------|
-| `url`            | URL of the webpage to scrape (optional at CLI)   |
-| `--output`, `-o` | Output XML file path (default: `scraped_data.xml`) |
+To simulate the impact of extra payments:
+1. Select a **Payment Date**
+2. Enter the **Additional Payment Amount**
+3. Choose a **Frequency**:
+   - **One-time** — Single lump-sum payment
+   - **Monthly** — Recurring every month from the selected date
+   - **Quarterly** — Recurring every 3 months
+   - **Half-Yearly** — Recurring every 6 months
+   - **Yearly** — Recurring every 12 months
+4. Click **Add Payment**
 
-## Output
+The schedule, charts, and summary will automatically recalculate to reflect the impact.
 
-The script generates an XML file with the following structure:
+## Default Configuration
 
-```xml
-<?xml version='1.0' encoding='utf-8'?>
-<scraped_data url="https://example.com">
-  <title>Example Domain</title>
-  <headings>
-    <heading level="1">Example Domain</heading>
-  </headings>
-  <paragraphs>
-    <p>This domain is for use in illustrative examples...</p>
-  </paragraphs>
-  <links>
-    <link href="https://www.iana.org/domains/example">More information...</link>
-  </links>
-</scraped_data>
-```
+The app comes pre-loaded with sample loan data:
+
+| Parameter | Value |
+|-----------|-------|
+| Initial Loan Amount | INR 40,00,000 |
+| Loan Start Date | 15 March 2017 |
+| Tenure | 312 months |
+| Outstanding Amount | INR 30,26,195 |
+| Interest Rate | 8.25% |
+| EMI Due Date | 23rd of each month |
+
+## Tech Stack
+
+- **HTML5 / CSS3 / JavaScript** — Single-file, zero-dependency app
+- **Chart.js** (CDN) — For interactive chart visualizations
+- **Responsive Design** — Works on desktop and mobile browsers
+
+## License
+
+MIT License — free to use, modify, and distribute.
