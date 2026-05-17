@@ -189,6 +189,14 @@
                 <h2>Outstanding Balance Over Time</h2>
                 <div class="chart-container"><canvas id="balanceChart"></canvas></div>
             </div>
+            <div class="card" id="copayerCompareCard" style="display:none;">
+                <h2>Co-Payer: Total Amount Paid</h2>
+                <div class="chart-container"><canvas id="copayerCompareChart"></canvas></div>
+            </div>
+            <div class="card" id="copayerBalanceCard" style="display:none;">
+                <h2>Co-Payer: Outstanding Balance</h2>
+                <div class="chart-container"><canvas id="copayerBalanceChart"></canvas></div>
+            </div>
         </div>
 
         <!-- Amortization Table -->
@@ -196,7 +204,7 @@
             <h2>Repayment Schedule</h2>
             <div class="table-wrap">
                 <table>
-                    <thead>
+                    <thead id="scheduleHead">
                         <tr><th>#</th><th>Date</th><th>EMI</th><th>Principal</th><th>Interest</th><th>Extra Payment</th><th>Balance</th></tr>
                     </thead>
                     <tbody id="scheduleBody"></tbody>
@@ -209,7 +217,8 @@
 <script>
 let extraPayments = [];
 let copayers = [];
-let barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance;
+let barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance, copayerCompareChartInstance, copayerBalanceChartInstance;
+const payerColors = ['#5c6bc0','#66bb6a','#ffa726','#ab47bc','#26c6da','#ef5350','#8d6e63','#78909c'];
 
 function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
 
@@ -412,17 +421,45 @@ function calculate() {
     const monthsSaved = origMonths - month;
     document.getElementById('sumMonthsSaved').textContent = Math.max(0, monthsSaved);
 
-    // Render table
+    // Render table with co-payer columns
+    const thead = document.getElementById('scheduleHead');
     const tbody = document.getElementById('scheduleBody');
-    tbody.innerHTML = schedule.map(r => `<tr>
-        <td>${r.month}</td>
-        <td>${r.date}</td>
-        <td>${formatCurrency(r.emi)}</td>
-        <td>${formatCurrency(r.principal)}</td>
-        <td>${formatCurrency(r.interest)}</td>
-        <td>${r.extra > 0 ? formatCurrency(r.extra) : '-'}</td>
-        <td>${formatCurrency(r.balance)}</td>
-    </tr>`).join('');
+    let thExtra = '';
+    if (copayers.length > 0) {
+        thExtra = copayers.map(n => `<th>${n} Extra</th><th>${n} Balance</th>`).join('');
+    }
+    thead.innerHTML = `<tr><th>#</th><th>Date</th><th>EMI</th><th>Principal</th><th>Interest</th><th>Extra Payment</th><th>Balance</th>${thExtra}</tr>`;
+
+    // Build payer schedule lookup after copayer breakdown runs
+    const payerScheduleMap = {};
+    if (copayers.length > 0 && lastPayerResults.length > 0) {
+        lastPayerResults.forEach(pr => {
+            payerScheduleMap[pr.name] = pr.schedule;
+        });
+    }
+
+    tbody.innerHTML = schedule.map((r, idx) => {
+        let tdExtra = '';
+        if (copayers.length > 0) {
+            tdExtra = copayers.map(name => {
+                const ps = payerScheduleMap[name];
+                if (ps && idx < ps.length) {
+                    return `<td>${ps[idx].extra > 0 ? formatCurrency(ps[idx].extra) : '-'}</td><td>${formatCurrency(ps[idx].balance)}</td>`;
+                }
+                return `<td>-</td><td>${formatCurrency(0)}</td>`;
+            }).join('');
+        }
+        return `<tr>
+            <td>${r.month}</td>
+            <td>${r.date}</td>
+            <td>${formatCurrency(r.emi)}</td>
+            <td>${formatCurrency(r.principal)}</td>
+            <td>${formatCurrency(r.interest)}</td>
+            <td>${r.extra > 0 ? formatCurrency(r.extra) : '-'}</td>
+            <td>${formatCurrency(r.balance)}</td>
+            ${tdExtra}
+        </tr>`;
+    }).join('');
 
     // Co-payer breakdown
     renderCopayerBreakdown(outstanding, emi, monthlyRate, schedule, origMonths, origTotalInterest);
@@ -459,6 +496,7 @@ function simulatePayerSchedule(share, emiShare, monthlyRate, currentDate, payerN
     let totalInterest = 0;
     let totalExtra = 0;
     let month = 0;
+    const schedule = [];
     while (balance > 0.5) {
         month++;
         const paymentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + month, 23);
@@ -470,16 +508,30 @@ function simulatePayerSchedule(share, emiShare, monthlyRate, currentDate, payerN
         if (balance < 0) { extra += balance; balance = 0; }
         totalInterest += interest;
         totalExtra += extra;
+        schedule.push({ month, date: paymentDate.toISOString().slice(0,10), emiShare, principal, interest, extra, balance });
         if (month > 600) break;
     }
-    return { months: month, totalInterest, totalExtra };
+    return { months: month, totalInterest, totalExtra, schedule };
 }
+
+let lastPayerResults = [];
 
 function renderCopayerBreakdown(outstanding, emi, monthlyRate, schedule, origMonths, origTotalInterest) {
     const section = document.getElementById('copayerBreakdown');
     const body = document.getElementById('copayerBreakdownBody');
-    if (copayers.length === 0) { section.style.display = 'none'; return; }
+    const compareCard = document.getElementById('copayerCompareCard');
+    const balanceCard = document.getElementById('copayerBalanceCard');
+
+    if (copayers.length === 0) {
+        section.style.display = 'none';
+        compareCard.style.display = 'none';
+        balanceCard.style.display = 'none';
+        lastPayerResults = [];
+        return;
+    }
     section.style.display = 'block';
+    compareCard.style.display = '';
+    balanceCard.style.display = '';
 
     const numPayers = copayers.length;
     const share = outstanding / numPayers;
@@ -492,19 +544,21 @@ function renderCopayerBreakdown(outstanding, emi, monthlyRate, schedule, origMon
     const monthsPassed = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
     const currentDate = new Date(start.getFullYear(), start.getMonth() + monthsPassed, 23);
 
-    body.innerHTML = copayers.map(name => {
+    lastPayerResults = copayers.map(name => {
         const result = simulatePayerSchedule(share, emiShare, monthlyRate, currentDate, name);
         const saved = origInterestPerPayer - result.totalInterest;
-        return `<tr>
-            <td>${name}</td>
-            <td>${formatCurrency(share)}</td>
-            <td>${formatCurrency(emiShare)}</td>
-            <td>${formatCurrency(result.totalExtra)}</td>
-            <td>${formatCurrency(result.totalInterest)}</td>
-            <td>${result.months} months</td>
-            <td>${formatCurrency(Math.max(0, saved))}</td>
-        </tr>`;
-    }).join('');
+        return { name, share, emiShare, ...result, saved };
+    });
+
+    body.innerHTML = lastPayerResults.map(r => `<tr>
+        <td>${r.name}</td>
+        <td>${formatCurrency(r.share)}</td>
+        <td>${formatCurrency(r.emiShare)}</td>
+        <td>${formatCurrency(r.totalExtra)}</td>
+        <td>${formatCurrency(r.totalInterest)}</td>
+        <td>${r.months} months</td>
+        <td>${formatCurrency(Math.max(0, r.saved))}</td>
+    </tr>`).join('');
 }
 
 function renderCharts(schedule) {
@@ -581,6 +635,55 @@ function renderCharts(schedule) {
         },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendOpts }, scales: { x: scaleOpts, y: scaleOpts } }
     });
+
+    // Co-payer charts
+    if (copayerCompareChartInstance) copayerCompareChartInstance.destroy();
+    if (copayerBalanceChartInstance) copayerBalanceChartInstance.destroy();
+
+    if (copayers.length > 0 && lastPayerResults.length > 0) {
+        // Compare chart: grouped bar showing EMI paid, Extra paid, Interest for each payer
+        const compareLabels = lastPayerResults.map(r => r.name);
+        const emiPaid = lastPayerResults.map(r => Math.round(r.emiShare * r.months));
+        const extraPaid = lastPayerResults.map(r => Math.round(r.totalExtra));
+        const interestPaid = lastPayerResults.map(r => Math.round(r.totalInterest));
+
+        copayerCompareChartInstance = new Chart(document.getElementById('copayerCompareChart'), {
+            type: 'bar',
+            data: {
+                labels: compareLabels,
+                datasets: [
+                    { label: 'EMI Total', data: emiPaid, backgroundColor: '#5c6bc0' },
+                    { label: 'Extra Payments', data: extraPaid, backgroundColor: '#66bb6a' },
+                    { label: 'Interest Paid', data: interestPaid, backgroundColor: '#ef5350' }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendOpts }, scales: { x: scaleOpts, y: scaleOpts } }
+        });
+
+        // Per-payer balance over time
+        const maxMonths = Math.max(...lastPayerResults.map(r => r.schedule.length));
+        const balStep = maxMonths > 60 ? 6 : maxMonths > 30 ? 3 : 1;
+        const balLabels = [];
+        for (let i = 0; i < maxMonths; i += balStep) {
+            const s = lastPayerResults[0].schedule[i];
+            if (s) balLabels.push(s.date.slice(0, 7));
+        }
+
+        const balDatasets = lastPayerResults.map((pr, idx) => {
+            const data = [];
+            for (let i = 0; i < maxMonths; i += balStep) {
+                if (i < pr.schedule.length) data.push(Math.round(pr.schedule[i].balance));
+                else data.push(0);
+            }
+            return { label: pr.name, data, borderColor: payerColors[idx % payerColors.length], fill: false, tension: 0.2 };
+        });
+
+        copayerBalanceChartInstance = new Chart(document.getElementById('copayerBalanceChart'), {
+            type: 'line',
+            data: { labels: balLabels, datasets: balDatasets },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendOpts }, scales: { x: scaleOpts, y: scaleOpts } }
+        });
+    }
 }
 
 // Initial calculation on load

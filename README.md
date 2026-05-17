@@ -90,6 +90,11 @@ The app comes pre-loaded with sample loan data:
 
 ## Version History
 
+### v1.5.0
+- Added **Co-Payer: Total Amount Paid** grouped bar chart comparing EMI total, extra payments, and interest per payer
+- Added **Co-Payer: Outstanding Balance** line chart showing each payer's declining balance over time
+- **Repayment schedule table** now includes per-payer columns (Extra and Balance) for each co-payer
+
 ### v1.4.0
 - Added **co-payer support** to split loan equally among multiple borrowers
 - Each co-payer gets an individual share of the outstanding amount and EMI
