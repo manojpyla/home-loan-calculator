@@ -23,6 +23,7 @@
     <meta name="description" content="Loan Repayment Calculator - simulate EMI, track co-payer shares, record extra payments, and visualize payoff. An app by Manoj Pyla.">
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <style>
         :root {
             --bg: #f0f2f5; --card-bg: #fff; --text: #333; --text-muted: #555;
@@ -317,6 +318,7 @@
                 <button class="btn btn-success" onclick="savePlan()">Save Current Plan</button>
             </div>
             <div class="plan-actions">
+                <button class="btn btn-success" onclick="exportToExcel()" style="font-weight:700;">Export to Excel</button>
                 <button class="btn btn-primary" onclick="exportPlansJSON()">Export All (JSON)</button>
                 <button class="btn btn-warn" onclick="document.getElementById('importFile').click()">Import Plans</button>
                 <input type="file" id="importFile" accept=".json" style="display:none" onchange="importPlansJSON(event)">
@@ -1006,6 +1008,247 @@ function importPlansJSON(event) {
     };
     reader.readAsText(file);
     event.target.value = '';
+}
+
+// ── Export to Excel ──
+function exportToExcel() {
+    const wb = XLSX.utils.book_new();
+    const { code } = getSelectedCurrency();
+    const loanAmount = parseFloat(document.getElementById('loanAmount').value);
+    const startDate = document.getElementById('startDate').value;
+    const tenure = parseInt(document.getElementById('tenure').value);
+    const outstanding = parseFloat(document.getElementById('outstandingAmount').value);
+    const annualRate = parseFloat(document.getElementById('interestRate').value);
+    const monthlyRate = annualRate / 12 / 100;
+    const emi = loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenure) / (Math.pow(1 + monthlyRate, tenure) - 1);
+
+    // ── Sheet 1: Loan Parameters & Summary ──
+    const paramData = [
+        ['LOAN REPAYMENT STRATEGY - EXPORT REPORT'],
+        ['Generated on', new Date().toLocaleString()],
+        [''],
+        ['=== LOAN PARAMETERS ==='],
+        ['Currency', code],
+        ['Initial Loan Amount', loanAmount],
+        ['Loan Start Date', startDate],
+        ['Tenure (Months)', tenure],
+        ['Current Outstanding', outstanding],
+        ['Annual Interest Rate', annualRate + '%'],
+        ['Monthly EMI', Math.round(emi)],
+        [''],
+        ['=== PAID TO DATE ==='],
+        ['Principal Paid to Date', document.getElementById('sumPrincipalPaid').textContent],
+        ['Interest Paid to Date', document.getElementById('sumInterestPaid').textContent],
+        ['Total Paid to Date', document.getElementById('sumPaidToDate').textContent],
+        [''],
+        ['=== REMAINING PROJECTION ==='],
+        ['Remaining Interest', document.getElementById('sumTotalInterest').textContent],
+        ['Remaining Total Payment', document.getElementById('sumTotalPayment').textContent],
+        ['Interest Saved (via strategy)', document.getElementById('sumSaved').textContent],
+        ['Payoff In (Months)', document.getElementById('sumPayoffMonths').textContent],
+        ['Loan End Date', document.getElementById('sumEndDate').textContent],
+        ['Months Saved', document.getElementById('sumMonthsSaved').textContent],
+    ];
+
+    // Extra payments strategy
+    if (extraPayments.length > 0) {
+        paramData.push([''], ['=== EXTRA PAYMENT STRATEGY ===']);
+        paramData.push(['Date', 'Amount', 'Frequency', 'Paid By']);
+        extraPayments.forEach(ep => {
+            paramData.push([ep.date, ep.amount, frequencyLabels[ep.frequency], ep.payer === 'all' ? 'All (Split)' : ep.payer]);
+        });
+    }
+
+    // Co-payers
+    if (copayers.length > 0) {
+        paramData.push([''], ['=== CO-PAYERS ===']);
+        paramData.push(['Name', 'Share %']);
+        copayers.forEach(c => paramData.push([c.name, c.share + '%']));
+    }
+
+    const wsParams = XLSX.utils.aoa_to_sheet(paramData);
+    // Style column widths
+    wsParams['!cols'] = [{ wch: 30 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, wsParams, 'Summary');
+
+    // ── Sheet 2: Repayment Schedule ──
+    const scheduleRows = [];
+    const headerRow = ['#', 'Date', 'EMI', 'Principal', 'Interest', 'Extra Payment', 'Balance', 'Principal %', 'Interest %'];
+    if (copayers.length > 0) {
+        copayers.forEach(c => {
+            headerRow.push(c.name + ' Extra', c.name + ' Balance');
+        });
+    }
+    scheduleRows.push(headerRow);
+
+    // Re-simulate to get schedule data
+    let bal = outstanding;
+    const start = new Date(startDate);
+    const now = new Date();
+    const monthsPassed = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+    const curDate = new Date(start.getFullYear(), start.getMonth() + monthsPassed, 23);
+    let mo = 0;
+
+    // Build payer schedules for columns
+    const payerScheds = {};
+    if (lastPayerResults.length > 0) {
+        lastPayerResults.forEach(pr => { payerScheds[pr.name] = pr.schedule; });
+    }
+
+    while (bal > 0.5 && mo < 600) {
+        mo++;
+        const pd = new Date(curDate.getFullYear(), curDate.getMonth() + mo, 23);
+        const ds = pd.toISOString().slice(0, 10);
+        const ms = pd.toISOString().slice(0, 7);
+        const interest = bal * monthlyRate;
+        let principal = Math.min(emi - interest, bal);
+        let extra = 0;
+        extraPayments.forEach(ep => {
+            const epDate = new Date(ep.date);
+            if (epDate > pd) return;
+            let amt = ep.amount;
+            if (ep.frequency === 'once') { if (ep.date.slice(0,7) === ms) extra += amt; }
+            else {
+                const md = (pd.getFullYear() - epDate.getFullYear()) * 12 + (pd.getMonth() - epDate.getMonth());
+                if (md < 0) return;
+                const iv = ep.frequency === 'monthly' ? 1 : ep.frequency === 'quarterly' ? 3 : ep.frequency === 'half-yearly' ? 6 : 12;
+                if (md % iv === 0) extra += amt;
+            }
+        });
+        if (extra > 0) extra = Math.min(extra, bal - principal);
+        bal -= (principal + extra);
+        if (bal < 0) { extra += bal; bal = 0; }
+
+        const pPct = Math.round(principal / (principal + interest) * 100);
+        const iPct = 100 - pPct;
+
+        const row = [mo, ds, Math.round(emi), Math.round(principal), Math.round(interest), Math.round(extra), Math.round(bal), pPct + '%', iPct + '%'];
+
+        if (copayers.length > 0) {
+            copayers.forEach(c => {
+                const ps = payerScheds[c.name];
+                if (ps && mo - 1 < ps.length) {
+                    row.push(Math.round(ps[mo - 1].extra), Math.round(ps[mo - 1].balance));
+                } else {
+                    row.push(0, 0);
+                }
+            });
+        }
+        scheduleRows.push(row);
+    }
+
+    const wsSchedule = XLSX.utils.aoa_to_sheet(scheduleRows);
+    wsSchedule['!cols'] = headerRow.map(() => ({ wch: 14 }));
+    XLSX.utils.book_append_sheet(wb, wsSchedule, 'Repayment Schedule');
+
+    // ── Sheet 3: Co-Payer Breakdown (if applicable) ──
+    if (copayers.length > 0 && lastPayerResults.length > 0) {
+        const cpData = [
+            ['CO-PAYER DETAILED BREAKDOWN'],
+            [''],
+            ['Payer', 'Share %', 'Share Amount', 'EMI Share', 'Principal Paid', 'Interest Paid', 'Extra Paid', 'Total Paid', 'Payoff (Months)', 'Interest Saved']
+        ];
+        lastPayerResults.forEach(r => {
+            cpData.push([
+                r.name, r.sharePct + '%', Math.round(r.share), Math.round(r.emiShare),
+                Math.round(r.totalPrincipalPaid), Math.round(r.totalInterest),
+                Math.round(r.totalExtra), Math.round(r.totalPaid),
+                r.months, Math.round(Math.max(0, r.saved))
+            ]);
+        });
+
+        // Add per-payer monthly schedules
+        lastPayerResults.forEach(r => {
+            cpData.push([''], ['--- ' + r.name + ' Monthly Schedule ---']);
+            cpData.push(['Month', 'Date', 'EMI Share', 'Principal', 'Interest', 'Extra', 'Balance']);
+            r.schedule.forEach(s => {
+                cpData.push([s.month, s.date, Math.round(s.emiShare), Math.round(s.principal), Math.round(s.interest), Math.round(s.extra), Math.round(s.balance)]);
+            });
+        });
+
+        const wsCopayer = XLSX.utils.aoa_to_sheet(cpData);
+        wsCopayer['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 15 }, { wch: 14 }, { wch: 15 }, { wch: 15 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 15 }];
+        XLSX.utils.book_append_sheet(wb, wsCopayer, 'Co-Payer Breakdown');
+    }
+
+    // ── Sheet 4: Charts as data tables (for Excel charting) ──
+    const chartData = [
+        ['CHART DATA - Use these columns to create charts in Excel'],
+        [''],
+        ['Monthly Principal vs Interest Breakdown'],
+        ['Month', 'Date', 'Principal', 'Interest', 'Principal %', 'Interest %', 'Cumulative Principal', 'Cumulative Interest', 'Outstanding Balance']
+    ];
+    let cP = 0, cI = 0;
+    bal = outstanding;
+    mo = 0;
+    while (bal > 0.5 && mo < 600) {
+        mo++;
+        const pd = new Date(curDate.getFullYear(), curDate.getMonth() + mo, 23);
+        const interest = bal * monthlyRate;
+        let principal = Math.min(emi - interest, bal);
+        let extra = 0;
+        extraPayments.forEach(ep => {
+            const epDate = new Date(ep.date);
+            if (epDate > pd) return;
+            let amt = ep.amount;
+            const ms = pd.toISOString().slice(0, 7);
+            if (ep.frequency === 'once') { if (ep.date.slice(0,7) === ms) extra += amt; }
+            else {
+                const md = (pd.getFullYear() - epDate.getFullYear()) * 12 + (pd.getMonth() - epDate.getMonth());
+                if (md < 0) return;
+                const iv = ep.frequency === 'monthly' ? 1 : ep.frequency === 'quarterly' ? 3 : ep.frequency === 'half-yearly' ? 6 : 12;
+                if (md % iv === 0) extra += amt;
+            }
+        });
+        if (extra > 0) extra = Math.min(extra, bal - principal);
+        bal -= (principal + extra);
+        if (bal < 0) { extra += bal; bal = 0; }
+        cP += principal + extra;
+        cI += interest;
+        const pPct = Math.round(principal / (principal + interest) * 100);
+        chartData.push([mo, pd.toISOString().slice(0, 7), Math.round(principal), Math.round(interest), pPct, 100 - pPct, Math.round(cP), Math.round(cI), Math.round(bal)]);
+    }
+
+    const wsChart = XLSX.utils.aoa_to_sheet(chartData);
+    wsChart['!cols'] = chartData[3].map(() => ({ wch: 18 }));
+    XLSX.utils.book_append_sheet(wb, wsChart, 'Chart Data');
+
+    // ── Sheet 5: Embedded chart images ──
+    const chartCanvases = [
+        { id: 'barChart', name: 'Principal vs Interest' },
+        { id: 'lineChart', name: 'Cumulative P & I' },
+        { id: 'pieChart', name: 'Overall Breakdown' },
+        { id: 'balanceChart', name: 'Balance Over Time' },
+        { id: 'dualAxisChart', name: 'P-I Share Dual Axis' },
+    ];
+    if (copayers.length > 0) {
+        chartCanvases.push(
+            { id: 'copayerCompareChart', name: 'Co-Payer Comparison' },
+            { id: 'copayerBalanceChart', name: 'Co-Payer Balance' },
+            { id: 'copayerPIChart', name: 'Co-Payer P vs I' },
+        );
+    }
+
+    const imgData = [['CHART IMAGES'], ['Open the Chart Data sheet to create Excel charts from the raw data.'], ['Below are the chart names captured from the dashboard:'], ['']];
+    chartCanvases.forEach(ch => {
+        const canvas = document.getElementById(ch.id);
+        if (canvas) {
+            imgData.push([ch.name + ' - (see dashboard for interactive version)']);
+            imgData.push(['']);
+        }
+    });
+    imgData.push([''], ['TIP: To recreate charts in Excel:']);
+    imgData.push(['1. Go to the "Chart Data" sheet']);
+    imgData.push(['2. Select the columns you need']);
+    imgData.push(['3. Insert > Chart > choose your chart type']);
+    imgData.push(['4. The data is structured for easy Excel charting']);
+
+    const wsImages = XLSX.utils.aoa_to_sheet(imgData);
+    wsImages['!cols'] = [{ wch: 60 }];
+    XLSX.utils.book_append_sheet(wb, wsImages, 'Charts Guide');
+
+    // Download
+    XLSX.writeFile(wb, 'Loan_Repayment_Report_' + code + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
 }
 
 // ── PWA: Service Worker Registration ──

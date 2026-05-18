@@ -1,4 +1,4 @@
-const CACHE_NAME = 'loan-calc-v3';
+const CACHE_NAME = 'loan-calc-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -6,7 +6,8 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './icon-180.png',
-  'https://cdn.jsdelivr.net/npm/chart.js'
+  'https://cdn.jsdelivr.net/npm/chart.js',
+  'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
 ];
 
 // Install: cache core assets
