@@ -80,6 +80,15 @@
         .inline-add input { flex: 1; }
         .inline-add .btn { white-space: nowrap; }
         .footer { text-align: center; padding: 24px 0 8px; font-size: 0.85rem; color: var(--text-muted); }
+        .saved-plans { margin-top: 12px; }
+        .saved-plans table { font-size: 0.85rem; }
+        .saved-plans th, .saved-plans td { text-align: center; }
+        .saved-plans .btn { padding: 4px 10px; font-size: 0.8rem; margin: 2px; }
+        .btn-warn { background: #ff9800; color: #fff; }
+        .btn-warn:hover { background: #f57c00; }
+        .btn-danger { background: #ef5350; color: #fff; }
+        .btn-danger:hover { background: #d32f2f; }
+        .plan-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
         /* iOS install banner */
         .ios-install-banner { display: none; background: var(--accent-bg); border-radius: 12px; padding: 14px 18px; margin-bottom: 16px; font-size: 0.88rem; line-height: 1.5; text-align: center; border: 1px solid var(--input-border); }
@@ -298,6 +307,27 @@
                     </thead>
                     <tbody id="scheduleBody"></tbody>
                 </table>
+            </div>
+        </div>
+        <!-- Save / Load Plans -->
+        <div class="card full-width">
+            <h2>Saved Repayment Plans</h2>
+            <div class="inline-add">
+                <input type="text" id="planName" placeholder="Enter plan name (e.g. 'Aggressive payoff')">
+                <button class="btn btn-success" onclick="savePlan()">Save Current Plan</button>
+            </div>
+            <div class="plan-actions">
+                <button class="btn btn-primary" onclick="exportPlansJSON()">Export All (JSON)</button>
+                <button class="btn btn-warn" onclick="document.getElementById('importFile').click()">Import Plans</button>
+                <input type="file" id="importFile" accept=".json" style="display:none" onchange="importPlansJSON(event)">
+            </div>
+            <div class="saved-plans" id="savedPlansSection" style="display:none;">
+                <div class="table-wrap" style="margin-top:12px;">
+                    <table>
+                        <thead><tr><th>Name</th><th>Currency</th><th>Loan Amt</th><th>Outstanding</th><th>Rate</th><th>Co-Payers</th><th>Extra Payments</th><th>Saved On</th><th>Actions</th></tr></thead>
+                        <tbody id="savedPlansBody"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -869,6 +899,115 @@ function renderCharts(schedule) {
     }
 }
 
+// ── Save / Load Plans ──
+function getSavedPlans() {
+    return JSON.parse(localStorage.getItem('loanPlans') || '[]');
+}
+
+function savePlan() {
+    const nameInput = document.getElementById('planName');
+    const name = nameInput.value.trim();
+    if (!name) { alert('Please enter a plan name.'); return; }
+
+    const plan = {
+        name,
+        savedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        currency: document.getElementById('currency').value,
+        loanAmount: document.getElementById('loanAmount').value,
+        startDate: document.getElementById('startDate').value,
+        tenure: document.getElementById('tenure').value,
+        outstandingAmount: document.getElementById('outstandingAmount').value,
+        interestRate: document.getElementById('interestRate').value,
+        copayers: JSON.parse(JSON.stringify(copayers)),
+        extraPayments: JSON.parse(JSON.stringify(extraPayments))
+    };
+
+    const plans = getSavedPlans();
+    plans.push(plan);
+    localStorage.setItem('loanPlans', JSON.stringify(plans));
+    nameInput.value = '';
+    renderSavedPlans();
+}
+
+function loadPlan(index) {
+    const plans = getSavedPlans();
+    const p = plans[index];
+    if (!p) return;
+
+    document.getElementById('currency').value = p.currency || 'USD';
+    document.getElementById('loanAmount').value = p.loanAmount;
+    document.getElementById('startDate').value = p.startDate;
+    document.getElementById('tenure').value = p.tenure;
+    document.getElementById('outstandingAmount').value = p.outstandingAmount;
+    document.getElementById('interestRate').value = p.interestRate;
+    copayers = p.copayers || [];
+    extraPayments = p.extraPayments || [];
+    renderCopayers();
+    renderExtraPayments();
+    calculate();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function deletePlan(index) {
+    const plans = getSavedPlans();
+    plans.splice(index, 1);
+    localStorage.setItem('loanPlans', JSON.stringify(plans));
+    renderSavedPlans();
+}
+
+function renderSavedPlans() {
+    const plans = getSavedPlans();
+    const section = document.getElementById('savedPlansSection');
+    const body = document.getElementById('savedPlansBody');
+    if (plans.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    body.innerHTML = plans.map((p, i) => `<tr>
+        <td>${p.name}</td>
+        <td>${p.currency || 'INR'}</td>
+        <td>${Number(p.loanAmount).toLocaleString()}</td>
+        <td>${Number(p.outstandingAmount).toLocaleString()}</td>
+        <td>${p.interestRate}%</td>
+        <td>${(p.copayers || []).length}</td>
+        <td>${(p.extraPayments || []).length}</td>
+        <td>${p.savedAt || '--'}</td>
+        <td>
+            <button class="btn btn-primary" onclick="loadPlan(${i})">Load</button>
+            <button class="btn btn-danger" onclick="deletePlan(${i})">Del</button>
+        </td>
+    </tr>`).join('');
+}
+
+function exportPlansJSON() {
+    const plans = getSavedPlans();
+    if (plans.length === 0) { alert('No saved plans to export.'); return; }
+    const blob = new Blob([JSON.stringify(plans, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'loan-repayment-plans.json';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importPlansJSON(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const imported = JSON.parse(e.target.result);
+            if (!Array.isArray(imported)) { alert('Invalid file format.'); return; }
+            const existing = getSavedPlans();
+            const merged = existing.concat(imported);
+            localStorage.setItem('loanPlans', JSON.stringify(merged));
+            renderSavedPlans();
+            alert('Imported ' + imported.length + ' plan(s) successfully.');
+        } catch (err) { alert('Error reading file: ' + err.message); }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
 // ── PWA: Service Worker Registration ──
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -898,6 +1037,7 @@ function showInstallBannerIfNeeded() {
 window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('extraPaymentDate').value = new Date().toISOString().slice(0, 10);
     calculate();
+    renderSavedPlans();
     showInstallBannerIfNeeded();
 });
 </script>
