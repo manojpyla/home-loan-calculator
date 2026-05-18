@@ -134,6 +134,26 @@
         <div class="card">
             <h2>Loan Parameters</h2>
             <div class="form-group">
+                <label>Currency</label>
+                <select id="currency" onchange="calculate()">
+                    <option value="USD" data-locale="en-US">$ US Dollar (USD)</option>
+                    <option value="EUR" data-locale="de-DE">Euro (EUR)</option>
+                    <option value="GBP" data-locale="en-GB">British Pound (GBP)</option>
+                    <option value="JPY" data-locale="ja-JP">Japanese Yen (JPY)</option>
+                    <option value="CNY" data-locale="zh-CN">Chinese Yuan (CNY)</option>
+                    <option value="INR" data-locale="en-IN">Indian Rupee (INR)</option>
+                    <option value="AUD" data-locale="en-AU">Australian Dollar (AUD)</option>
+                    <option value="CAD" data-locale="en-CA">Canadian Dollar (CAD)</option>
+                    <option value="CHF" data-locale="de-CH">Swiss Franc (CHF)</option>
+                    <option value="SGD" data-locale="en-SG">Singapore Dollar (SGD)</option>
+                    <option value="AED" data-locale="ar-AE">UAE Dirham (AED)</option>
+                    <option value="SAR" data-locale="ar-SA">Saudi Riyal (SAR)</option>
+                    <option value="BRL" data-locale="pt-BR">Brazilian Real (BRL)</option>
+                    <option value="KRW" data-locale="ko-KR">Korean Won (KRW)</option>
+                    <option value="MXN" data-locale="es-MX">Mexican Peso (MXN)</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>Initial Loan Amount</label>
                 <input type="number" id="loanAmount" value="4000000" min="0">
             </div>
@@ -208,7 +228,7 @@
                 <h2 style="margin-top:16px;">Per-Payer Breakdown</h2>
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>Payer</th><th>Share</th><th>EMI Share</th><th>Extra Paid</th><th>Interest</th><th>Payoff In</th><th>Interest Saved</th></tr></thead>
+                        <thead><tr><th>Payer</th><th>Share</th><th>EMI Share</th><th>Principal Paid</th><th>Interest Paid</th><th>Extra Paid</th><th>Total Paid</th><th>Payoff In</th><th>Interest Saved</th></tr></thead>
                         <tbody id="copayerBreakdownBody"></tbody>
                     </table>
                 </div>
@@ -220,8 +240,11 @@
             <h2>Loan Summary</h2>
             <div class="summary" id="summarySection">
                 <div class="summary-item"><div class="value" id="sumEmi">--</div><div class="label">Monthly EMI</div></div>
-                <div class="summary-item"><div class="value" id="sumTotalInterest">--</div><div class="label">Total Interest</div></div>
-                <div class="summary-item"><div class="value" id="sumTotalPayment">--</div><div class="label">Total Payment</div></div>
+                <div class="summary-item"><div class="value" id="sumPaidToDate">--</div><div class="label">Paid To Date</div></div>
+                <div class="summary-item"><div class="value" id="sumPrincipalPaid">--</div><div class="label">Principal Paid (to date)</div></div>
+                <div class="summary-item"><div class="value" id="sumInterestPaid">--</div><div class="label">Interest Paid (to date)</div></div>
+                <div class="summary-item"><div class="value" id="sumTotalInterest">--</div><div class="label">Remaining Interest</div></div>
+                <div class="summary-item"><div class="value" id="sumTotalPayment">--</div><div class="label">Remaining Total</div></div>
                 <div class="summary-item"><div class="value" id="sumSaved">--</div><div class="label">Interest Saved</div></div>
                 <div class="summary-item"><div class="value" id="sumPayoffMonths">--</div><div class="label">Payoff In (Months)</div></div>
                 <div class="summary-item"><div class="value" id="sumEndDate">--</div><div class="label">Loan End Date</div></div>
@@ -247,6 +270,10 @@
                 <h2>Outstanding Balance Over Time</h2>
                 <div class="chart-container"><canvas id="balanceChart"></canvas></div>
             </div>
+            <div class="card">
+                <h2>Principal vs Interest Share (Dual Axis)</h2>
+                <div class="chart-container"><canvas id="dualAxisChart"></canvas></div>
+            </div>
             <div class="card" id="copayerCompareCard" style="display:none;">
                 <h2>Co-Payer: Total Amount Paid</h2>
                 <div class="chart-container"><canvas id="copayerCompareChart"></canvas></div>
@@ -254,6 +281,10 @@
             <div class="card" id="copayerBalanceCard" style="display:none;">
                 <h2>Co-Payer: Outstanding Balance</h2>
                 <div class="chart-container"><canvas id="copayerBalanceChart"></canvas></div>
+            </div>
+            <div class="card" id="copayerPICard" style="display:none;">
+                <h2>Co-Payer: Principal vs Interest Paid</h2>
+                <div class="chart-container"><canvas id="copayerPIChart"></canvas></div>
             </div>
         </div>
 
@@ -276,7 +307,7 @@
 <script>
 let extraPayments = [];
 let copayers = [];
-let barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance, copayerCompareChartInstance, copayerBalanceChartInstance;
+let barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance, copayerCompareChartInstance, copayerBalanceChartInstance, dualAxisChartInstance, copayerPIChartInstance;
 const payerColors = ['#5c6bc0','#66bb6a','#ffa726','#ab47bc','#26c6da','#ef5350','#8d6e63','#78909c'];
 
 function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
@@ -310,8 +341,15 @@ function getChartColors() {
     };
 }
 
+function getSelectedCurrency() {
+    const sel = document.getElementById('currency');
+    const opt = sel.options[sel.selectedIndex];
+    return { code: sel.value, locale: opt.getAttribute('data-locale') };
+}
+
 function formatCurrency(n) {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
+    const { code, locale } = getSelectedCurrency();
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: code, maximumFractionDigits: 0 }).format(n);
 }
 
 const frequencyLabels = { once: 'One-time', monthly: 'Monthly', quarterly: 'Quarterly', 'half-yearly': 'Half-Yearly', yearly: 'Yearly' };
@@ -479,8 +517,25 @@ function calculate() {
         if (month > 600) break;
     }
 
+    // Calculate paid-to-date (from loan start to now)
+    const principalPaidToDate = loanAmount - outstanding;
+    const paidToDateMonths = monthsPassed;
+    // Estimate interest paid to date by simulating from start
+    let interestPaidToDate = 0;
+    let tempBal2 = loanAmount;
+    for (let m = 0; m < paidToDateMonths && tempBal2 > 0.5; m++) {
+        const intPart = tempBal2 * monthlyRate;
+        const prinPart = Math.min(emi - intPart, tempBal2);
+        interestPaidToDate += intPart;
+        tempBal2 -= prinPart;
+    }
+    const totalPaidToDate = principalPaidToDate + interestPaidToDate;
+
     // Update summary
     document.getElementById('sumEmi').textContent = formatCurrency(emi);
+    document.getElementById('sumPaidToDate').textContent = formatCurrency(totalPaidToDate);
+    document.getElementById('sumPrincipalPaid').textContent = formatCurrency(principalPaidToDate);
+    document.getElementById('sumInterestPaid').textContent = formatCurrency(interestPaidToDate);
     document.getElementById('sumTotalInterest').textContent = formatCurrency(totalInterest);
     document.getElementById('sumTotalPayment').textContent = formatCurrency(totalPrincipal + totalInterest);
     const interestSaved = origTotalInterest - totalInterest;
@@ -567,6 +622,7 @@ function simulatePayerSchedule(share, emiShare, monthlyRate, currentDate, payerN
     let balance = share;
     let totalInterest = 0;
     let totalExtra = 0;
+    let totalPrincipalPaid = 0;
     let month = 0;
     const schedule = [];
     while (balance > 0.5) {
@@ -580,10 +636,12 @@ function simulatePayerSchedule(share, emiShare, monthlyRate, currentDate, payerN
         if (balance < 0) { extra += balance; balance = 0; }
         totalInterest += interest;
         totalExtra += extra;
+        totalPrincipalPaid += principal + extra;
         schedule.push({ month, date: paymentDate.toISOString().slice(0,10), emiShare, principal, interest, extra, balance });
         if (month > 600) break;
     }
-    return { months: month, totalInterest, totalExtra, schedule };
+    const totalPaid = totalPrincipalPaid + totalInterest;
+    return { months: month, totalInterest, totalExtra, totalPrincipalPaid, totalPaid, schedule };
 }
 
 let lastPayerResults = [];
@@ -594,16 +652,20 @@ function renderCopayerBreakdown(outstanding, emi, monthlyRate, schedule, origMon
     const compareCard = document.getElementById('copayerCompareCard');
     const balanceCard = document.getElementById('copayerBalanceCard');
 
+    const piCard = document.getElementById('copayerPICard');
+
     if (copayers.length === 0) {
         section.style.display = 'none';
         compareCard.style.display = 'none';
         balanceCard.style.display = 'none';
+        piCard.style.display = 'none';
         lastPayerResults = [];
         return;
     }
     section.style.display = 'block';
     compareCard.style.display = '';
     balanceCard.style.display = '';
+    piCard.style.display = '';
 
     const totalSharePct = getTotalShare();
 
@@ -627,9 +689,11 @@ function renderCopayerBreakdown(outstanding, emi, monthlyRate, schedule, origMon
         <td>${r.name} (${r.sharePct}%)</td>
         <td>${formatCurrency(r.share)}</td>
         <td>${formatCurrency(r.emiShare)}</td>
-        <td>${formatCurrency(r.totalExtra)}</td>
+        <td>${formatCurrency(r.totalPrincipalPaid)}</td>
         <td>${formatCurrency(r.totalInterest)}</td>
-        <td>${r.months} months</td>
+        <td>${formatCurrency(r.totalExtra)}</td>
+        <td>${formatCurrency(r.totalPaid)}</td>
+        <td>${r.months} mo</td>
         <td>${formatCurrency(Math.max(0, r.saved))}</td>
     </tr>`).join('');
 }
@@ -657,7 +721,7 @@ function renderCharts(schedule) {
     const totalI = schedule.reduce((s, r) => s + r.interest, 0);
 
     // Destroy old charts
-    [barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance].forEach(c => c && c.destroy());
+    [barChartInstance, lineChartInstance, pieChartInstance, balanceChartInstance, dualAxisChartInstance].forEach(c => c && c.destroy());
 
     const cc = getChartColors();
     const scaleOpts = { ticks: { color: cc.text }, grid: { color: cc.grid } };
@@ -709,9 +773,36 @@ function renderCharts(schedule) {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendOpts }, scales: { x: scaleOpts, y: scaleOpts } }
     });
 
+    // Dual-axis chart: Principal %, Interest %, and EMI amount
+    const principalPcts = sampled.map(r => Math.round(r.principal / (r.principal + r.interest) * 100));
+    const interestPcts = sampled.map(r => Math.round(r.interest / (r.principal + r.interest) * 100));
+    const emiAmounts = sampled.map(r => Math.round(r.emi));
+
+    dualAxisChartInstance = new Chart(document.getElementById('dualAxisChart'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Principal %', data: principalPcts, borderColor: '#5c6bc0', backgroundColor: 'rgba(92,107,192,0.15)', fill: true, tension: 0.3, yAxisID: 'yPct' },
+                { label: 'Interest %', data: interestPcts, borderColor: '#ef5350', backgroundColor: 'rgba(239,83,80,0.15)', fill: true, tension: 0.3, yAxisID: 'yPct' },
+                { label: 'EMI Amount', data: emiAmounts, borderColor: '#66bb6a', borderDash: [6, 3], fill: false, tension: 0.1, yAxisID: 'yAmt', pointRadius: 0 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: legendOpts },
+            scales: {
+                x: scaleOpts,
+                yPct: { type: 'linear', position: 'left', min: 0, max: 100, title: { display: true, text: 'Share %', color: cc.text }, ...scaleOpts },
+                yAmt: { type: 'linear', position: 'right', title: { display: true, text: 'EMI Amount', color: cc.text }, grid: { drawOnChartArea: false }, ...scaleOpts }
+            }
+        }
+    });
+
     // Co-payer charts
     if (copayerCompareChartInstance) copayerCompareChartInstance.destroy();
     if (copayerBalanceChartInstance) copayerBalanceChartInstance.destroy();
+    if (copayerPIChartInstance) copayerPIChartInstance.destroy();
 
     if (copayers.length > 0 && lastPayerResults.length > 0) {
         // Compare chart: grouped bar showing EMI paid, Extra paid, Interest for each payer
@@ -755,6 +846,25 @@ function renderCharts(schedule) {
             type: 'line',
             data: { labels: balLabels, datasets: balDatasets },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendOpts }, scales: { x: scaleOpts, y: scaleOpts } }
+        });
+
+        // Co-payer Principal vs Interest paid (stacked bar)
+        const piLabels = lastPayerResults.map(r => r.name);
+        const piPrincipal = lastPayerResults.map(r => Math.round(r.totalPrincipalPaid));
+        const piInterest = lastPayerResults.map(r => Math.round(r.totalInterest));
+        const piExtra = lastPayerResults.map(r => Math.round(r.totalExtra));
+
+        copayerPIChartInstance = new Chart(document.getElementById('copayerPIChart'), {
+            type: 'bar',
+            data: {
+                labels: piLabels,
+                datasets: [
+                    { label: 'Principal Paid', data: piPrincipal, backgroundColor: '#5c6bc0' },
+                    { label: 'Interest Paid', data: piInterest, backgroundColor: '#ef5350' },
+                    { label: 'Extra Payments', data: piExtra, backgroundColor: '#66bb6a' }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: legendOpts }, scales: { x: { stacked: true, ...scaleOpts }, y: { stacked: true, ...scaleOpts } } }
         });
     }
 }
